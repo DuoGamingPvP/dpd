@@ -33,7 +33,7 @@ class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b'✅ DPD Bot is running!')
+        self.wfile.write(b'DPD Bot is running!')
     
     def log_message(self, format, *args):
         pass
@@ -337,4 +337,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
