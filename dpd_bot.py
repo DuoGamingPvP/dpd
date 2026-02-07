@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 import re
 import asyncio
@@ -12,6 +13,13 @@ from datetime import datetime
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# Sprawdź czy jesteśmy na Renderze
+ON_RENDER = os.environ.get('RENDER', False)
+
+if ON_RENDER:
+    print("🚀 Uruchamiam na Render.com")
+    # Ustaw odpowiednie ustawienia dla Render
+    os.environ['DISABLE_SSL'] = 'True'
 # ========== KONFIGURACJA ==========
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 PORT = int(os.environ.get("PORT", 8080))
@@ -329,3 +337,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
