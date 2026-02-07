@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: dpd-telegram-bot
+    env: python
+    region: frankfurt  # Lub warsaw jeśli dostępne
+    buildCommand: |
+      apt-get update
+      apt-get install -y tesseract-ocr
+      apt-get install -y tesseract-ocr-eng
+      apt-get install -y tesseract-ocr-pol
+      pip install -r requirements.txt
+    startCommand: python dpd_bot.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+    healthCheckPath: /
+    autoDeploy: true
+    plan: free
