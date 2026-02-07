@@ -1,11 +1,10 @@
 import os
-import sys
 import logging
 import re
 import asyncio
 from io import BytesIO
 from PIL import Image
-import pytesseract
+import easyocr
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from telegram.constants import ParseMode
@@ -13,34 +12,31 @@ from datetime import datetime
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Sprawdź czy jesteśmy na Renderze
-ON_RENDER = os.environ.get('RENDER', False)
-
-if ON_RENDER:
-    print("🚀 Uruchamiam na Render.com")
-    # Ustaw odpowiednie ustawienia dla Render
-    os.environ['DISABLE_SSL'] = 'True'
 # ========== KONFIGURACJA ==========
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-PORT = int(os.environ.get("PORT", 8080))
+PORT = int(os.environ.get("PORT", 10000))
 
 # Konfiguracja przetwarzania
 BOTTOM_AREA_PERCENT = 0.18
 CONTRAST_THRESHOLD = 140
 
+# Inicjalizuj EasyOCR raz
+reader = easyocr.Reader(['en'])
+
 # ========== HEALTH CHECK SERVER ==========
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
         self.end_headers()
-        self.wfile.write(b'DPD Bot is running!')
+        self.wfile.write('DPD Bot is running!'.encode('utf-8'))
     
     def log_message(self, format, *args):
         pass
 
 def run_health_server():
     server = HTTPServer(('0.0.0.0', PORT), HealthHandler)
-    print(f"🩺 Health server running on port {PORT}")
+    print(f"Health server running on port {PORT}")
     server.serve_forever()
 
 # ========== KONFIGURACJA LOGOWANIA ==========
@@ -81,17 +77,22 @@ def preprocess_image(image_bytes):
         raise
 
 def extract_dpd_number(image_bytes):
-    """Ekstrakcja numeru DPD z obrazu"""
+    """Ekstrakcja numeru DPD z obrazu używając EasyOCR"""
     try:
         processed_image, original_image = preprocess_image(image_bytes)
         
-        text = pytesseract.image_to_string(
-            processed_image,
-            config='--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-        )
+        # Konwertuj do bajtów dla EasyOCR
+        img_byte_arr = BytesIO()
+        processed_image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
         
-        logger.info(f"OCR rozpoznał: {text[:50]}...")
+        # Wykonaj OCR z EasyOCR
+        results = reader.readtext(img_byte_arr, detail=0)
+        text = ' '.join(results)
         
+        logger.info(f"EasyOCR rozpoznał: {text[:50]}...")
+        
+        # Znajdź numer DPD w tekście
         dpd_number = find_dpd_number_in_text(text)
         
         if dpd_number:
@@ -101,7 +102,7 @@ def extract_dpd_number(image_bytes):
         return None, original_image, processed_image
         
     except Exception as e:
-        logger.error(f"Błąd ekstrakcji: {e}")
+        logger.error(f"Błąd ekstrakcji EasyOCR: {e}")
         return None, None, None
 
 def find_dpd_number_in_text(text):
@@ -227,7 +228,7 @@ async def export_txt(update: Update, context: CallbackContext):
     """Komenda /txt"""
     try:
         if 'dpd_numbers' not in context.user_data or not context.user_data['dpd_numbers']:
-            await update.message.reply_text("📭 *Brak numerów!* Wyślij najpierw zdjęcia.")
+            await update.message.reply_text("📭 *Brak numerów!* Wyślij najpierw zdjęcia.", parse_mode=ParseMode.MARKDOWN)
             return
         
         numbers = [item['number'] for item in context.user_data['dpd_numbers']]
@@ -240,7 +241,8 @@ async def export_txt(update: Update, context: CallbackContext):
         
         await update.message.reply_document(
             document=InputFile(txt_bytes, filename=filename),
-            caption=f"📄 *{len(numbers)} numerów DPD*"
+            caption=f"📄 *{len(numbers)} numerów DPD*",
+            parse_mode=ParseMode.MARKDOWN
         )
         
     except Exception as e:
@@ -263,16 +265,16 @@ async def show_stats(update: Update, context: CallbackContext):
         
         await update.message.reply_text(stats, parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text("📭 *Brak statystyk*")
+        await update.message.reply_text("📭 *Brak statystyk*", parse_mode=ParseMode.MARKDOWN)
 
 async def clear_numbers(update: Update, context: CallbackContext):
     """Komenda /clear"""
     if 'dpd_numbers' in context.user_data:
         count = len(context.user_data['dpd_numbers'])
         context.user_data['dpd_numbers'] = []
-        await update.message.reply_text(f"🗑️ *Wyczyściono {count} numerów*")
+        await update.message.reply_text(f"🗑️ *Wyczyściono {count} numerów*", parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text("📭 *Brak numerów do wyczyszczenia*")
+        await update.message.reply_text("📭 *Brak numerów do wyczyszczenia*", parse_mode=ParseMode.MARKDOWN)
 
 async def help_command(update: Update, context: CallbackContext):
     """Komenda /help"""
@@ -306,11 +308,12 @@ def main():
     """Uruchomienie bota"""
     if not TELEGRAM_TOKEN:
         print("❌ BRAK TOKENU! Ustaw zmienną środowiskową TELEGRAM_TOKEN")
+        print("💡 W Render: Settings → Environment → Add Environment Variable")
         return
     
     print("🤖 Uruchamianie DPD Bot...")
     print(f"🔧 Port: {PORT}")
-    print("📸 OCR: Tesseract")
+    print("📸 OCR: EasyOCR")
     print("⚡ Render.com ready!")
     
     # Uruchom health server w tle
@@ -337,5 +340,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
